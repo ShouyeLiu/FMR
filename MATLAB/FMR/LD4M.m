@@ -1,12 +1,12 @@
 function  LD4Mout = LD4M( chisq,l2,l4,annot,varargin)
-%CSLD4M (cross-trait stratified LD 4th moments regression).
+%LD4M (stratified LD 4th moments regression).
 %
-%   REQUIRED INPUT ARGUMENTS:chisq1,chisq2:  Mx1 vectors of chi^2 statistics;
-%   zprod: Mx1 vector which is product of Z scores;
-%   l2: MtotxP matrix of LD scores (LD second moments), where P is #annotations
+%   REQUIRED INPUT ARGUMENTS:
+%   chisq:  Mx1 vector of chi^2 statistics;
+%   l2: Mtot x P matrix of LD scores (LD second moments), where P is no. annotations
 %   and Mtot is the number of reference SNPs;
-%   l4: MtotxP matrix of LD 4th moments;
-%   annot: MtotxP matrix of annotation values;
+%   l4: Mtot x P matrix of LD 4th moments, same size as l2;
+%   annot: Mtot x P matrix of annotation values;
 
 %   OPTIONAL INPUT ARGUMENTS as name-value pairs:
 %   RegressionIndices: Mx1 vector of indices corresponding to the reference SNPs that
@@ -24,6 +24,11 @@ function  LD4Mout = LD4M( chisq,l2,l4,annot,varargin)
 %   NoBootstrapIter: optionally, run block bootstrap instead of block
 %   jackknife (default: 0 -> run block jackknife)
 %   SeedBootstrap: optionally, set random seed for bootstrap resampling
+%   MixedModel: 1 if desired to treat jackknife blocks containing
+%   large-effect loci as fixed effects. Other SNPs in the same block will
+%   be ignored.
+%   MixedModelThreshold: chi^2 threshold such that if any SNP in a
+%   block is larger than this, it is treated as a fixed effect
 %
 %   OUTPUT ARGUMENTS: all outputs are matrices of size NoJacknifeBlocks x
 %   P', ie each row = a leave-one-block-out estimate and each column = an
@@ -59,8 +64,8 @@ addRequired(p,'annot',checkmatrix)
 addParameter(p,'RegressionIndices',1:mm_tot,@(x)checkvector(x) && all(mod(x,1)==0) && all(x<=mm_tot))
 addParameter(p,'l2Weights',[],checkvector)
 addParameter(p,'l4Weights',[],checkvector)
-addParameter(p,'JackknifeBlocks',[],@(x)checkJackknifeBlocks(x))
 addParameter(p,'NoJackknifeBlocks',100,@(x)isscalar(x) && all(mod(x,1)==0) && all(x<=mm_regression))
+addParameter(p,'JackknifeBlocks',[],@(x)true)
 addParameter(p,'NoBootstrapIter',0,@(x)isscalar(x) && all(mod(x,1)==0) && all(x>=0))
 addParameter(p,'SeedBootstrap',0,@(x)isscalar(x) && all(mod(x,1)==0) && all(x>=0))
 addParameter(p,'OutputSubspace',[],@(x)checkProjectionmatrix(x) || checkIndexlist(x))
@@ -277,11 +282,7 @@ for jk=1:no_iters+1
     
 end
 
-avar=zeros(1,no_blocks);
-for jk=1:no_blocks
-    avar(jk)=mean(aa([1:jk-1,jk+1:end]));
-end
-avar=avar-intercept(1:end-1);
+avar=mean(aa)-intercept(end);
 
 % fixed-effect h2 and kurt
 fixedeffect_blocks=find(fixedeffect_blocks);
