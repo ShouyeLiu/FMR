@@ -5,7 +5,7 @@ function [ww,ss,LD4Mout,warningflag] = run_FMR(chisq,lF,l2,l4,ss,tt,varargin)
 %   Input arguments:
 %   chisq: Mx1 GWAS chi^2 stats or effect-size estimates in per-s.d. units
 %   lF: MxKtot matrix of Fourier LD scores. Columns correspond to ss-tt
-%   pairs, but there can be more pairs than columns.
+%   pairs, but there are more pairs than columns
 %   l2: Mx1 vector of LD scores
 %   l4: Mx1 vector of LD 4th moments
 %   ss: 1xK1 vector of variance parameters for the Gaussian mixture cpts
@@ -29,6 +29,9 @@ function [ww,ss,LD4Mout,warningflag] = run_FMR(chisq,lF,l2,l4,ss,tt,varargin)
 %   eqs. By default, a large value is used so that the LDSC/LD4M eqs are
 %   treated as constraints (which constrain but do not determine the
 %   regression weights)
+%   NonNegativeRegression: whether to restrict ww to be nonnegative
+%   (default true) (true requires optimization toolbox)
+%   sigmasqSubset: which values of ss to retain. 
 %
 %   Output arguments:
 %   ww: estimated mixture weights
@@ -44,6 +47,7 @@ addRequired(p,'l4',@isvector)
 addRequired(p,'ss',@isvector)
 addRequired(p,'tt',@isvector)
 no_tvals=length(tt);
+no_svals = length(ss);
 mm_regression=length(chisq);
 
 addParameter(p,'l2Weights',1./l2,@isvector)
@@ -53,6 +57,8 @@ addParameter(p,'NoJackknifeBlocks',100,@(x)isscalar(x) && all(mod(x,1)==0) && al
 addParameter(p,'NGWAS',[],@(x)isscalar(x));
 addParameter(p,'RescaleParam',1,@(x)isscalar(x) && x>=0 );
 addParameter(p,'WeightParam',10^4,@(x)isscalar(x) && x>=0 );
+addParameter(p,'NonNegativeRegression',true,@(x)isscalar(x));
+addParameter(p,'sigmasqSubset',1:no_svals,@isnumeric);
 
 parse(p,chisq,lF,l2,l4,ss,tt,varargin{:});
 
@@ -63,6 +69,8 @@ jk_blocks=p.Results.JackknifeBlocks;
 NoJackknifeBlocks=p.Results.NoJackknifeBlocks;
 nn_GWAS=p.Results.NGWAS;
 weight_param=p.Results.WeightParam;
+use_nonnegativity_constraint = p.Results.NonNegativeRegression;
+sigmasqSubset = p.Results.sigmasqSubset;
 
 if isempty(nn_GWAS)
     LD4Mout=LD4M(chisq,l2,l4,ones(mm_regression,1),'l2Weights',wt2,'l4Weights',wt4);
@@ -102,15 +110,32 @@ yy4=1/3*(chisq.^2-6*chisq/nn_GWAS+3/nn_GWAS^2-3*(chisq-1/nn_GWAS).*(l2*perSNPh2)
 yy2=chisq-1/nn_GWAS;
 
 l4=l4.*(ss-mean(chisq-1/nn_GWAS));
-l2=repmat(l2,1,length(ss));
+l2=repmat(l2,1,no_svals);
 
-index_matrix=(1:no_tvals)+(0:no_tvals-1)';
-tt_matrix=reshape(ones(no_tvals).*tt',1,no_tvals.^2);
+% Each entry of index_matrix is a column index of lF, where the row 
+% indexes the ss value and the column indexes the tt value
+index_matrix=(1:no_tvals)+(0:no_svals-1)';
+
+% tt value of each column of lF
+tt_matrix=reshape(ones(no_svals).*tt',1,no_tvals.^2);
+
+% expand lF accordingly and multiply by tt
 lF=lF(:,index_matrix).*tt_matrix;
-lF=reshape(lF,no_tvals*mm_regression,no_tvals);
 
+% reshape lF to have number of columns equal to number of ss values
+lF=reshape(lF,no_tvals*mm_regression,no_svals);
+
+% concatenate scores to produce a single X matrix
+X = real([lF;l2;l4]);
+yy = real([yyF(:);yy2;yy4]);
+
+% restrict to desired ss values 
+X = X(:,sigmasqSubset);
+
+% regression weights
 weights=min(10^30,real(wt2./[mean(yyF.^2) mean(yy2.^2)/weight_param mean(yy4.^2)/weight_param]));
 
+% construct jackknife blocks
 if isempty(jk_blocks)
     jk_blocks=cell(NoJackknifeBlocks,1);
     blocksize=ceil(mm_regression/NoJackknifeBlocks);
@@ -120,13 +145,15 @@ if isempty(jk_blocks)
         jk_blocks{jk}=block(:);
     end
 end
-ww=nonnegative_regression_jk(real([lF;l2;l4]),real([yyF(:);yy2;yy4]),weights(:),'JackknifeBlocks',jk_blocks);
 
-ss=ss*rescale;
-ww=ww./sum(ww,2);%*implied_perSNPh2;
-%implied_log10Me=log10(mm_reference*implied_perSNPh2./(ss*ww/implied_perSNPh2));
-%sprintf('Implied effect-size variance = %f\n Implied log10Me = %.1f',full(implied_perSNPh2*rescale),full(mean(implied_log10Me)))
-
+% regresss yy on X
+if use_nonnegativity_constraint
+    ww=nonnegative_regression_jk(X,yy,weights(:),'JackknifeBlocks',jk_blocks);
+else
+    ww=linear_regression_jk(X,yy,weights(:),'JackknifeBlocks',jk_blocks);
+end
+ss=ss(sigmasqSubset)*rescale;
+ww=ww./sum(ww,2);
 
 end
 
