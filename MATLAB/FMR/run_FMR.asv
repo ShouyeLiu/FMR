@@ -5,7 +5,7 @@ function [ww,ss,LD4Mout,warningflag] = run_FMR(chisq,lF,l2,l4,ss,tt,varargin)
 %   Input arguments:
 %   chisq: Mx1 GWAS chi^2 stats or effect-size estimates in per-s.d. units
 %   lF: MxKtot matrix of Fourier LD scores. Columns correspond to ss-tt
-%   pairs, but there are more pairs than columns
+%   pairs, but there can be more pairs than columns.
 %   l2: Mx1 vector of LD scores
 %   l4: Mx1 vector of LD 4th moments
 %   ss: 1xK1 vector of variance parameters for the Gaussian mixture cpts
@@ -29,9 +29,6 @@ function [ww,ss,LD4Mout,warningflag] = run_FMR(chisq,lF,l2,l4,ss,tt,varargin)
 %   eqs. By default, a large value is used so that the LDSC/LD4M eqs are
 %   treated as constraints (which constrain but do not determine the
 %   regression weights)
-%   NonNegativeRegression: whether to restrict ww to be nonnegative
-%   (default true) (true requires optimization toolbox)
-%   sigmasqSubset: which values of ss to retain. 
 %
 %   Output arguments:
 %   ww: estimated mixture weights
@@ -70,7 +67,7 @@ NoJackknifeBlocks=p.Results.NoJackknifeBlocks;
 nn_GWAS=p.Results.NGWAS;
 weight_param=p.Results.WeightParam;
 use_nonnegativity_constraint = p.Results.NonNegativeRegression;
-sigmasqSubset = p.Results.sigmasqSubset;
+sigmasq_subset = p.Results.sigmasqSubset;
 
 if isempty(nn_GWAS)
     LD4Mout=LD4M(chisq,l2,l4,ones(mm_regression,1),'l2Weights',wt2,'l4Weights',wt4);
@@ -141,7 +138,7 @@ if isempty(jk_blocks)
     blocksize=ceil(mm_regression/NoJackknifeBlocks);
     for jk=1:NoJackknifeBlocks
         block=((jk-1)*blocksize+1:min(mm_regression,jk*blocksize)) + ...
-            mm_regression * (0:size(lF,2)+1)';
+            (0:mm_regression:(size(lF,1)-mm_regression))';
         jk_blocks{jk}=block(:);
     end
 end
